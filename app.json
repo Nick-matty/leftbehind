@@ -1,0 +1,81 @@
+{
+  "expo": {
+    "name": "LeftBehind",
+    "slug": "leftbehind",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#1B4F9C"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.leftbehind.app",
+      "config": {
+        "googleMapsApiKey": "YOUR_IOS_GOOGLE_MAPS_API_KEY"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "LeftBehind uses your location to center the map on nearby places and give directions. Location is never used in the background.",
+        "NSFaceIDUsageDescription": "LeftBehind uses Face ID to unlock your secure travel document vault.",
+        "NSMicrophoneUsageDescription": "LeftBehind uses the microphone for AI assistant voice commands."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1B4F9C"
+      },
+      "package": "com.leftbehind.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "VIBRATE",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "RECORD_AUDIO"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_ANDROID_GOOGLE_MAPS_API_KEY"
+        }
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "cover",
+          "backgroundColor": "#1B4F9C"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "LeftBehind uses your location for live weather, map centering, and directions."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "LeftBehind uses your photos for profile pictures and a custom app background."
+        }
+      ],
+      "expo-font",
+      "expo-local-authentication"
+    ],
+    "scheme": "leftbehind",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

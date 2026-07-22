@@ -1,0 +1,88 @@
+// Prisma schema for the LeftBehind zero-knowledge backend.
+//
+// Privacy note: the server stores ONLY a scrypt hash of the client-derived
+// auth key (never the password) and OPAQUE CIPHERTEXT for user content. The
+// server has no ability to decrypt VaultBlob rows — the encryption key is
+// derived on the device from the user's password and never leaves it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  fullName     String
+  // scrypt hash of the client's auth key (format: salt:N:r:p:hash).
+  authHash     String
+  // Public PBKDF2 salt (hex). Empty string = legacy email-derived KDF.
+  kdfSalt      String    @default("")
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  refreshTokens RefreshToken[]
+  vaults        VaultBlob[]
+  files         VaultFile[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // SHA-256 hash of the opaque refresh token (raw token never stored).
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+  // Id of the token that replaced this one (rotation chain, for reuse detection).
+  replacedBy String?
+  userAgent  String?
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model VaultBlob {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Logical store name: 'travel' | 'app' | 'assistant' | 'settings' | ...
+  storeKey   String
+  // AES-256-GCM ciphertext (base64). Opaque to the server.
+  ciphertext String
+  // AES-GCM nonce/IV (base64).
+  iv         String
+  // Monotonic revision for last-write-wins conflict handling.
+  rev        Int      @default(1)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, storeKey])
+  @@index([userId])
+  @@map("vault_blobs")
+}
+
+model VaultFile {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Client-chosen logical id, e.g. "doc-<uuid>". Unique per user.
+  fileId     String
+  // AES-256-GCM ciphertext (base64) of the file bytes. Opaque to the server.
+  ciphertext String
+  iv         String
+  rev        Int      @default(1)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, fileId])
+  @@index([userId])
+  @@map("vault_files")
+}
