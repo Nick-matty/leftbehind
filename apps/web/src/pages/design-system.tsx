@@ -1,4 +1,12 @@
+// Astryx's stylesheets are only needed here, so they travel with this route's
+// chunk instead of sitting on every public page's critical CSS.
+import "@astryxdesign/core/reset.css";
+import "@astryxdesign/core/astryx.css";
+import "@astryxdesign/theme-neutral/theme.css";
+
 import { Button as AstryxButton } from "@astryxdesign/core/Button";
+import { Theme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { Bookmark, Compass, Search, Star } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -96,6 +104,17 @@ function Section({
  * renders real primitives, nothing here is a mockup image.
  */
 export function DesignSystemPage() {
+  // Astryx's Theme wrapper lives here rather than at the app root: it exists to
+  // scope Astryx components (and their ~300 kB of CSS), and no public route
+  // renders one.
+  return (
+    <Theme theme={neutralTheme} mode="system">
+      <DesignSystemContent />
+    </Theme>
+  );
+}
+
+function DesignSystemContent() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);

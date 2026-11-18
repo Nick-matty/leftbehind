@@ -7,9 +7,13 @@
  */
 @layer reset, tw-preflight, astryx-base, astryx-theme;
 
-@import "@astryxdesign/core/reset.css";
-@import "@astryxdesign/core/astryx.css";
-@import "@astryxdesign/theme-neutral/theme.css";
+/*
+ * Astryx's own stylesheets (~330 kB) are imported from the design-system page,
+ * not here: every public route would otherwise download a full component
+ * library's CSS for widgets it never renders. The layer statement above still
+ * declares the orders those sheets plug into, so they slot in correctly when
+ * the design route loads them.
+ */
 
 /*
  * Tailwind preflight plus the LeftBehind base, both underneath Astryx: these
