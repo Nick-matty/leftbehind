@@ -1,88 +1,289 @@
-// Prisma schema for the LeftBehind zero-knowledge backend.
+// Prisma schema for the LeftBehind travel backend.
 //
-// Privacy note: the server stores ONLY a scrypt hash of the client-derived
-// auth key (never the password) and OPAQUE CIPHERTEXT for user content. The
-// server has no ability to decrypt VaultBlob rows — the encryption key is
-// derived on the device from the user's password and never leaves it.
-
+// Maps to the PostgreSQL + PostGIS schema defined in backend/supabase/migrations/.
+// The database `leftbehind` must be created and PostGIS enabled.
+//
+// NOTE: Prisma does not support PostGIS geography types or advanced SQL constructs
+// (CTEs, partial unique indexes, expression indexes). Spatial queries are handled
+// by the existing RPC functions (nearby_places, search_places, search_destinations)
+// which are SECURITY INVOKER and execute PostGIS logic directly.
+//
+// This schema defines the basic models Prisma can manage. All spatial and
+// complex queries use pg (node-postgres) raw SQL calling the RPC functions.
+//
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  fullName     String
-  // scrypt hash of the client's auth key (format: salt:N:r:p:hash).
-  authHash     String
-  // Public PBKDF2 salt (hex). Empty string = legacy email-derived KDF.
-  kdfSalt      String    @default("")
-  failedLogins Int       @default(0)
-  lockedUntil  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+// Base users / profiles -------------------------------------------------------
 
-  refreshTokens RefreshToken[]
-  vaults        VaultBlob[]
-  files         VaultFile[]
-
-  @@map("users")
+model Profile {
+  id        String   @id @default(uuid())
+  full_name String
+  username  String   @unique
+  avatar_url String?
+  bio       String?
+  home_city String?
+  locale    String   @default('en')
+  theme     String   @default('system')
+  profile_visibility String @default('public')
+  notify_recommendations Boolean @default(true)
+  notify_place_updates   Boolean @default(true)
+  notify_review_activity Boolean @default(true)
+  notify_account         Boolean @default(true)
+  notify_email_digest    Boolean @default(false)
+  onboarded_at  String?
+  created_at  String   @default(now())
+  updated_at  String   @updatedAt
 }
 
-model RefreshToken {
-  id         String    @id @default(uuid())
-  userId     String
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // SHA-256 hash of the opaque refresh token (raw token never stored).
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
-  revokedAt  DateTime?
-  // Id of the token that replaced this one (rotation chain, for reuse detection).
-  replacedBy String?
-  userAgent  String?
+// User roles ---------------------------------------------------------------
 
-  @@index([userId])
-  @@map("refresh_tokens")
-}
-
-model VaultBlob {
+model UserRole {
   id         String   @id @default(uuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // Logical store name: 'travel' | 'app' | 'assistant' | 'settings' | ...
-  storeKey   String
-  // AES-256-GCM ciphertext (base64). Opaque to the server.
-  ciphertext String
-  // AES-GCM nonce/IV (base64).
-  iv         String
-  // Monotonic revision for last-write-wins conflict handling.
-  rev        Int      @default(1)
-  updatedAt  DateTime @updatedAt
-
-  @@unique([userId, storeKey])
-  @@index([userId])
-  @@map("vault_blobs")
+  user_id    String   @unique
+  role       String   @enum(['super_admin', 'administrator', 'content_manager', 'moderator', 'user'])
+  granted_by String?  references Profile(id) on delete set_null
+  created_at String   @default(now())
 }
 
-model VaultFile {
-  id         String   @id @default(uuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // Client-chosen logical id, e.g. "doc-<uuid>". Unique per user.
-  fileId     String
-  // AES-256-GCM ciphertext (base64) of the file bytes. Opaque to the server.
-  ciphertext String
-  iv         String
-  rev        Int      @default(1)
-  updatedAt  DateTime @updatedAt
+// Editorial categories ----------------------------------------------------
 
-  @@unique([userId, fileId])
-  @@index([userId])
-  @@map("vault_files")
+model DestinationCategory {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String?
+  description String?
+  icon        String   @default('Compass')
+  sort_order  Int      @default(0)
+  is_active   Boolean  @default(true)
+  created_at  String   @default(now())
+  updated_at  String   @updatedAt
+}
+
+// Destinations ------------------------------------------------------------
+
+model Destination {
+  id            String   @id @default(uuid())
+  slug          String   @unique
+  name          String
+  country_code  String
+  region        String?
+  city          String?
+  summary       String?
+  description   String?
+  latitude      Float64
+  longitude     Float64
+  timezone      String?
+  hero_image_path String?
+  status        String   @default('draft')
+  featured      Boolean  @default(false)
+  popularity    Int      @default(0)
+  rating_avg    Float    @default(0)
+  rating_count  Int      @default(0)
+  created_by    String?  references Profile(id) on delete set_null
+  published_at  String?
+  created_at    String   @default(now())
+  updated_at    String   @updatedAt
+}
+
+// Amenities --------------------------------------------------------------
+
+model Amenity {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String?
+  icon        String   @default('Check')
+  category    String   @default('general')
+  created_at  String   @default(now())
+}
+
+// Places (canonical visitable entity) -----------------------------------
+
+model Place {
+  id            String   @id @default(uuid())
+  slug          String   @unique
+  name          String
+  kind          String   @default('hotel')
+  destination_id String?  references Destination(id) on delete set_null
+  description   String?
+  address_line  String?
+  city          String?
+  country_code  String
+  latitude      Float64
+  longitude     Float64
+  phone         String?
+  website       String?
+  price_level   Int?
+  currency      String?
+  price_note    String?
+  price_verified_at String?
+  opening_hours Jsonb?
+  status        String   @default('draft')
+  rating_avg    Float    @default(0)
+  rating_count  Int      @default(0)
+  data_source   String   @default('manual')
+  source_place_id String?
+  last_synced_at String?
+  created_by    String?  references Profile(id) on delete set_null
+  published_at  String?
+  created_at    String   @default(now())
+  updated_at    String   @updatedAt
+}
+
+// 1:1 detail tables -----------------------------------------------------
+
+model HotelDetails {
+  place_id String   @id @default(uuid())
+  star_rating   Int      @check(star_rating between 1 and 5)
+  room_count    Int      @check(room_count > 0)
+  check_in_time String?
+  check_out_time String?
+  booking_provider Text? @check(booking_provider is null or booking_provider ~* '^https?://')
+  booking_url     Text? @check(booking_url is null or booking_url ~* '^https?://')
+  updated_at    String   @updatedAt
+}
+
+model RestaurantDetails {
+  place_id    String   @id @default(uuid())
+  cuisines    String[] @default('[]')
+  serves_alcohol Boolean
+  reservations_url Text? @check(reservations_url is null or reservations_url ~* '^https?://')
+  dress_code    Text?
+  updated_at    String   @updatedAt
+}
+
+model AttractionDetails {
+  place_id    String   @id @default(uuid())
+  attraction_type Text?
+  is_free       Boolean?
+  entry_fee_amount Float @check(entry_fee_amount >= 0)
+  entry_fee_currency String?
+  typical_duration_minutes Integer? @check(typical_duration_minutes > 0)
+  updated_at    String   @updatedAt
+}
+
+// Destination and place photography -------------------------------------
+
+model Image {
+  id             String   @id @default(uuid())
+  destination_id String?  references Destination(id) on delete cascade
+  place_id       String?  references Place(id) on delete cascade
+  storage_path   String   @unique
+  alt_text       String   @default('')
+  width          Int      @check(width > 0)
+  height         Int      @check(height > 0)
+  credit         String?
+  sort_order     Int      @default(0)
+  is_cover       Boolean  @default(false)
+  created_by     String?  references Profile(id) on delete set_null
+  created_at     String   @default(now())
+}
+
+// User-owned saved places -----------------------------------------------
+
+model SavedPlace {
+  id             String   @id @default(uuid())
+  user_id        String   references Profile(id) on delete cascade
+  place_id       String?  references Place(id) on delete cascade
+  destination_id String?  references Destination(id) on delete cascade
+  note           String?
+  created_at     String   @default(now())
+}
+
+// Collections and items -------------------------------------------------
+
+model Collection {
+  id               String   @id @default(uuid())
+  user_id          String   references Profile(id) on delete cascade
+  name             String
+  description      String?
+  visibility       String   @default('private')
+  cover_image_path String?
+  created_at       String   @default(now())
+  updated_at       String   @updatedAt
+}
+
+model CollectionItem {
+  id              String   @id @default(uuid())
+  collection_id   String   references Collection(id) on delete cascade
+  place_id        String?  references Place(id) on delete cascade
+  destination_id  String?  references Destination(id) on delete cascade
+  sort_order      Int      @default(0)
+  added_at        String   @default(now())
+}
+
+// Reviews and ratings ---------------------------------------------------
+
+model Review {
+  id               String   @id @default(uuid())
+  user_id          String   references Profile(id) on delete cascade
+  place_id        String?  references Place(id) on delete cascade
+  destination_id   String?  references Destination(id) on delete cascade
+  rating           Int      @check(rating between 1 and 5)
+  title            String?
+  body             String?
+  visit_date       String   @check(visit_date <= now()::date)
+  status           String   @default('published')
+  moderation_note  String?
+  moderated_by     String?  references Profile(id) on delete set_null
+  moderated_at     String?
+  created_at       String   @default(now())
+  updated_at       String   @updatedAt
+}
+
+// Notifications ---------------------------------------------------------
+
+model Notification {
+  id          String   @id @default(uuid())
+  user_id     String   references Profile(id) on delete cascade
+  kind        String   @default('recommendation')
+  title       String?
+  body        String?
+  data        Jsonb    @default('{}')
+  dedupe_key  String?
+  read_at     String?
+  created_at  String   @default(now())
+}
+
+// Recently viewed -------------------------------------------------------
+
+model RecentView {
+  id             String   @id @default(uuid())
+  user_id        String   references Profile(id) on delete cascade
+  place_id       String?  references Place(id) on delete cascade
+  destination_id String?  references Destination(id) on delete cascade
+  viewed_at      String   @default(now())
+}
+
+// Content reports and audit log ---------------------------------------
+
+model ContentReport {
+  id          String   @id @default(uuid())
+  reporter_id String   references Profile(id) on delete cascade
+  entity_type String
+  entity_id   String
+  reason      String
+  details     String?
+  status      String   @default('open')
+  resolved_by String?  references Profile(id) on delete set_null
+  resolved_at String?
+  created_at  String   @default(now())
+}
+
+model ActivityLog {
+  id            Bigint   @generated Always as identity PRIMARY KEY
+  actor_id    String?  references Profile(id) on delete set_null
+  action      String?
+  entity_type String?
+  entity_id   String?
+  metadata    Jsonb    @default('{}'::jsonb)
+  ip          Inet?
+  user_agent  Text?
+  created_at  String   @default(now())
 }

@@ -12,6 +12,14 @@ import { healthRouter } from './routes/health';
 import { authRouter } from './routes/auth';
 import { syncRouter } from './routes/sync';
 import { filesRouter } from './routes/files';
+import { destinationsRouter } from './routes/destinations';
+import { placesRouter } from './routes/places';
+import { hotelsRouter } from './routes/hotels';
+import { restaurantsRouter } from './routes/restaurants';
+import { attractionsRouter } from './routes/attractions';
+import { reviewsRouter } from './routes/reviews';
+import { savedPlacesRouter } from './routes/saved-places';
+import { notificationsRouter } from './routes/notifications';
 
 export function createApp() {
   const app = express();
@@ -49,6 +57,14 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/sync', syncRouter);
   app.use('/api/files', filesRouter);
+  app.use('/api/destinations', destinationsRouter);
+  app.use('/api/places', placesRouter);
+  app.use('/api/hotels', hotelsRouter);
+  app.use('/api/restaurants', restaurantsRouter);
+  app.use('/api/attractions', attractionsRouter);
+  app.use('/api/reviews', reviewsRouter);
+  app.use('/api/saved-places', savedPlacesRouter);
+  app.use('/api/notifications', notificationsRouter);
 
   app.use(notFound);
   app.use(errorHandler);

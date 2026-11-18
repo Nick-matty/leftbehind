@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '../db';
+import { query } from '../db';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middleware/validate';
 import { requireAuth } from '../middleware/auth';
@@ -18,10 +18,10 @@ syncRouter.use(requireAuth, syncLimiter);
 syncRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const blobs = await prisma.vaultBlob.findMany({
-      where: { userId: req.userId! },
-      select: { storeKey: true, ciphertext: true, iv: true, rev: true, updatedAt: true },
-    });
+    const { rows: blobs } = await query(
+      'SELECT storeKey, ciphertext, iv, rev, updatedAt FROM vaultBlob WHERE userId = $1',
+      [req.userId]
+    );
     res.json({ blobs });
   }),
 );
@@ -30,10 +30,10 @@ syncRouter.get(
 syncRouter.get(
   '/revisions',
   asyncHandler(async (req, res) => {
-    const blobs = await prisma.vaultBlob.findMany({
-      where: { userId: req.userId! },
-      select: { storeKey: true, rev: true, updatedAt: true },
-    });
+    const { rows: blobs } = await query(
+      'SELECT storeKey, rev, updatedAt FROM vaultBlob WHERE userId = $1',
+      [req.userId]
+    );
     res.json({ revisions: blobs });
   }),
 );
@@ -49,24 +49,25 @@ syncRouter.put(
     const { ciphertext, iv, baseRev } = req.body as import('../schemas/sync').PutBlobInput;
     const userId = req.userId!;
 
-    const existing = await prisma.vaultBlob.findUnique({
-      where: { userId_storeKey: { userId, storeKey } },
-      select: { rev: true },
-    });
+    const { rows: [existing] } = await query(
+      'SELECT rev FROM vaultBlob WHERE userId_storeKey = $1 AND userId = $2',
+      [storeKey, userId]
+    );
 
     if (existing && typeof baseRev === 'number' && baseRev !== existing.rev) {
       // Someone else (another device) updated this store first.
       throw new HttpError(409, 'This data changed on another device. Pull latest and retry.', 'revision_conflict');
     }
 
-    const nextRev = (existing?.rev ?? 0) + 1;
-    const saved = await prisma.vaultBlob.upsert({
-      where: { userId_storeKey: { userId, storeKey } },
-      create: { userId, storeKey, ciphertext, iv, rev: nextRev },
-      update: { ciphertext, iv, rev: nextRev },
-      select: { storeKey: true, rev: true, updatedAt: true },
-    });
-    res.json({ blob: saved });
+    const existingRev = existing?.rev as number | undefined;
+    const nextRev = (existingRev ?? 0) + 1;
+    await query(
+      `INSERT INTO vaultBlob (userId, storeKey, ciphertext, iv, rev)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (userId_storeKey) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, iv = EXCLUDED.iv, rev = EXCLUDED.rev`,
+      [userId, storeKey, ciphertext, iv, nextRev]
+    );
+    res.json({ blob: { storeKey, rev: nextRev, updatedAt: new Date() } });
   }),
 );
 
@@ -75,7 +76,12 @@ syncRouter.delete(
   validate(storeKeyParam, 'params'),
   asyncHandler(async (req, res) => {
     const { storeKey } = req.params as unknown as { storeKey: string };
-    await prisma.vaultBlob.deleteMany({ where: { userId: req.userId!, storeKey } });
+    await query(
+      'DELETE FROM vaultBlob WHERE userId = $1 AND storeKey = $2',
+      [req.userId, storeKey]
+    );
     res.status(204).send();
   }),
 );
+
+export default syncRouter;

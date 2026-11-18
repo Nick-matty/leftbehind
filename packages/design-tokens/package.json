@@ -1,0 +1,22 @@
+{
+  "name": "@leftbehind/design-tokens",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single source of truth for LeftBehind colour, type, space and motion tokens.",
+  "files": [
+    "tokens.json",
+    "dist"
+  ],
+  "exports": {
+    "./tokens.json": "./tokens.json",
+    "./tokens.css": "./dist/tokens.css",
+    "./tailwind-preset": {
+      "types": "./dist/tailwind-preset.d.ts",
+      "default": "./dist/tailwind-preset.js"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

@@ -1,0 +1,90 @@
+/*
+ * Layer order first: a @layer statement only orders names the page has not
+ * seen yet, and Astryx's own stylesheets declare reset/astryx-base/astryx-theme
+ * themselves. tw-preflight sits below astryx-base because an unlayered Tailwind
+ * preflight silently strips the padding, borders and fills of every Astryx
+ * component. Utilities stay unlayered so app utility classes keep winning.
+ */
+@layer reset, tw-preflight, astryx-base, astryx-theme;
+
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+
+/*
+ * Tailwind preflight plus the LeftBehind base, both underneath Astryx: these
+ * only fill in what Astryx does not style for a given element, so Astryx
+ * components keep their own typography, icons and focus rings.
+ */
+@layer tw-preflight {
+  @tailwind base;
+
+  /* App border default. Layered with preflight so Astryx keeps its borders. */
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background font-ui text-body-md text-foreground antialiased;
+    min-height: 100dvh;
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display text-balance;
+  }
+
+  p {
+    @apply text-pretty;
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-brand-900;
+  }
+
+  /* One visible focus treatment for everything Astryx does not own. */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .focus-ring {
+    @apply outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary;
+  }
+
+  .measure {
+    max-width: var(--prose-max-width);
+  }
+
+  /* Two-stop scrim for text over photography. Legibility, not decoration. */
+  .scrim {
+    background-image: linear-gradient(
+      to top,
+      var(--overlay-scrim-end),
+      var(--overlay-scrim-start)
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

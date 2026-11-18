@@ -37,3 +37,44 @@ yarn-error.*
 
 # generated QR helper
 expo-go-qr.png
+
+# --- LeftBehind rebuild ---
+# local env files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# tooling used to verify SQL locally
+.venv-sqlcheck/
+
+# web / admin workspaces
+apps/*/node_modules/
+apps/*/dist/
+apps/*/.vite/
+.npmrc.local
+
+# Flutter / Dart
+apps/mobile/.dart_tool/
+apps/mobile/build/
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+apps/mobile/ios/Pods/
+apps/mobile/ios/.symlinks/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/**/*.g.dart
+apps/mobile/**/*.freezed.dart
+
+# Supabase CLI artefacts
+backend/supabase/.branches/
+backend/supabase/.temp/
+
+# build/debug residue that must not be re-committed
+dist-sdk54-check/
+_cdp_*
+_chrome_*
+_web_*
+_term_snip.txt
+
+# Local verification cluster (throwaway PostgreSQL + PostGIS)
+.pgstack/

@@ -1,0 +1,68 @@
+# Local Supabase stack configuration for LeftBehind.
+# Run the CLI from this directory:  npx supabase start
+# Docs: https://supabase.com/docs/guides/local-development
+
+project_id = "leftbehind"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "5MiB"
+# Bucket-level limits are also set in the migration; these are stack defaults.
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:8081",
+  "leftbehind://auth-callback"
+]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+# Email verification required: reviews are only writable by verified accounts.
+enable_confirmations = true
+double_confirm_changes = true
+
+[auth.external.google]
+enabled = false
+# Optional social sign-in. Set client_id/secret via `supabase secrets` or the
+# dashboard; never commit them here.
+
+[edge_runtime]
+enabled = true
+policy = "oneshot"
+
+[analytics]
+enabled = false

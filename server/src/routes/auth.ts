@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { prisma } from '../db';
+import { pgPool } from '../db';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middleware/validate';
 import { requireAuth } from '../middleware/auth';
@@ -29,14 +29,30 @@ export const authRouter = Router();
 const MAX_FAILED = 5;
 const LOCKOUT_MS = 15 * 60_000;
 
-function publicUser(u: { id: string; email: string; fullName: string; createdAt: Date }) {
-  return { id: u.id, email: u.email, fullName: u.fullName, createdAt: u.createdAt };
+function publicUser(u: { id: string; fullName: string; createdAt: string }) {
+  return { id: u.id, fullName: u.fullName, createdAt: u.createdAt };
 }
 
 async function issueSession(userId: string, userAgent?: string) {
   const accessToken = signAccessToken(userId);
   const refreshToken = await issueRefreshToken(userId, userAgent);
   return { accessToken, refreshToken };
+}
+
+async function getUserByEmail(email: string) {
+  const { rows: [ [user] ] } = await pgPool.query(
+    'SELECT id, email, full_name as "fullName", kdf_salt as "kdfSalt", failed_logins as "failedLogins", locked_until as "lockedUntil", created_at as "createdAt" FROM "user" WHERE email = $1',
+    [email]
+  );
+  return user;
+}
+
+async function getUserById(userId: string) {
+  const { rows: [ [user] ] } = await pgPool.query(
+    'SELECT id, email, full_name as "fullName", kdf_salt as "kdfSalt", failed_logins as "failedLogins", locked_until as "lockedUntil", created_at as "createdAt" FROM "user" WHERE id = $1',
+    [userId]
+  );
+  return user;
 }
 
 /** Deterministic fake salt for unknown emails (anti-enumeration + constant work). */
@@ -51,19 +67,17 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const { email, fullName, authKey, kdfSalt } = req.body as import('../schemas/auth').RegisterInput;
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    // Check if user already exists
+    const existing = await getUserByEmail(email);
     if (existing) throw new HttpError(409, 'An account with that email already exists.', 'email_in_use');
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        fullName,
-        authHash: hashAuthKey(authKey),
-        kdfSalt,
-        failedLogins: 0,
-        lockedUntil: null,
-      },
-    });
+    // Insert new user
+    const { rows: [user] } = await pgPool.query(
+      `INSERT INTO "user" (email, full_name, auth_hash, kdf_salt, failed_logins, locked_until)
+       VALUES ($1, $2, $3, $4, 0, NULL)
+       RETURNING id, email, full_name as "fullName", kdf_salt as "kdfSalt", failed_logins as "failedLogins", locked_until as "lockedUntil", created_at as "createdAt"`,
+      [email, fullName, hashAuthKey(authKey), kdfSalt]
+    );
 
     const session = await issueSession(user.id, req.headers['user-agent']);
     res.status(201).json({ user: publicUser(user), kdfSalt: user.kdfSalt, ...session });
@@ -78,7 +92,7 @@ authRouter.post(
   validate(challengeSchema),
   asyncHandler(async (req, res) => {
     const { email } = req.body as import('../schemas/auth').ChallengeInput;
-    const user = await prisma.user.findUnique({ where: { email }, select: { kdfSalt: true } });
+    const user = await getUserByEmail(email);
     if (!user) {
       res.json({ kdfSalt: fakeSaltForEmail(email), legacy: false });
       return;
@@ -97,9 +111,9 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const { email, authKey } = req.body as import('../schemas/auth').LoginInput;
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await getUserByEmail(email);
 
-    if (user?.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+    if (user?.lockedUntil && new Date(user.lockedUntil).getTime() > Date.now()) {
       throw new HttpError(429, 'Too many attempts. Try again later.', 'account_locked');
     }
 
@@ -111,18 +125,18 @@ authRouter.post(
       if (user) {
         const failedLogins = user.failedLogins + 1;
         const lockedUntil = failedLogins >= MAX_FAILED ? new Date(Date.now() + LOCKOUT_MS) : null;
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { failedLogins, lockedUntil },
-        });
+        await pgPool.query(
+          'UPDATE "user" SET failed_logins = $1, locked_until = $2 WHERE id = $3',
+          [failedLogins, lockedUntil, user.id]
+        );
       }
       throw new HttpError(401, 'Invalid email or password.', 'invalid_credentials');
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { failedLogins: 0, lockedUntil: null },
-    });
+    await pgPool.query(
+      'UPDATE "user" SET failed_logins = 0, locked_until = NULL WHERE id = $1',
+      [user.id]
+    );
 
     const session = await issueSession(user.id, req.headers['user-agent']);
     const kdfSalt = user.kdfSalt?.trim() ? user.kdfSalt : `legacy:email:${email}`;
@@ -157,7 +171,7 @@ authRouter.get(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const user = await prisma.user.findUnique({ where: { id: req.userId! } });
+    const user = await getUserById(req.userId!);
     if (!user) throw new HttpError(404, 'Account not found.', 'not_found');
     res.json({ user: publicUser(user) });
   }),
@@ -169,7 +183,11 @@ authRouter.patch(
   validate(updateProfileSchema),
   asyncHandler(async (req, res) => {
     const { fullName } = req.body as { fullName: string };
-    const user = await prisma.user.update({ where: { id: req.userId! }, data: { fullName } });
+    await pgPool.query(
+      'UPDATE "user" SET full_name = $1 WHERE id = $2',
+      [fullName, req.userId]
+    );
+    const user = await getUserById(req.userId!);
     res.json({ user: publicUser(user) });
   }),
 );
@@ -182,21 +200,19 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const { currentAuthKey, newAuthKey, newKdfSalt } =
       req.body as import('../schemas/auth').ChangeCredentialsInput;
-    const user = await prisma.user.findUnique({ where: { id: req.userId! } });
+    const user = await getUserById(req.userId!);
     if (!user) throw new HttpError(404, 'Account not found.', 'not_found');
     if (!verifyAuthKey(currentAuthKey, user.authHash)) {
       throw new HttpError(401, 'Current password is incorrect.', 'invalid_credentials');
     }
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        authHash: hashAuthKey(newAuthKey),
-        kdfSalt: newKdfSalt,
-        failedLogins: 0,
-        lockedUntil: null,
-      },
-    });
-    await revokeAllForUser(user.id);
+    const authKey = hashAuthKey(newAuthKey ?? 'dummy');
+  const kdfSalt = newKdfSalt ?? 'legacy:email:' + req.userId!;
+    const userId = req.userId!;
+  await pgPool.query(
+    'UPDATE "user" SET auth_hash = $1, kdf_salt = $2, failed_logins = 0, locked_until = NULL WHERE id = $3',
+    [authKey, kdfSalt, userId]
+  );
+    await revokeAllForUser(req.userId!);
     res.status(204).send();
   }),
 );
@@ -205,7 +221,12 @@ authRouter.delete(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    await prisma.user.delete({ where: { id: req.userId! } });
+    await pgPool.query(
+      'DELETE FROM "user" WHERE id = $1',
+      [req.userId]
+    );
     res.status(204).send();
   }),
 );
+
+export default authRouter;

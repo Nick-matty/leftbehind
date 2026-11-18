@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '../db';
+import { query } from '../db';
 import { asyncHandler } from '../utils/asyncHandler';
 import { validate } from '../middleware/validate';
 import { requireAuth } from '../middleware/auth';
@@ -18,10 +18,10 @@ filesRouter.use(requireAuth, syncLimiter);
 filesRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    const files = await prisma.vaultFile.findMany({
-      where: { userId: req.userId! },
-      select: { fileId: true, rev: true, updatedAt: true },
-    });
+    const { rows: files } = await query(
+      'SELECT fileId, rev, updatedAt FROM vaultFile WHERE userId = $1',
+      [req.userId]
+    );
     res.json({ files });
   }),
 );
@@ -31,10 +31,10 @@ filesRouter.get(
   validate(fileIdParam, 'params'),
   asyncHandler(async (req, res) => {
     const { fileId } = req.params as unknown as { fileId: string };
-    const file = await prisma.vaultFile.findUnique({
-      where: { userId_fileId: { userId: req.userId!, fileId } },
-      select: { fileId: true, ciphertext: true, iv: true, rev: true, updatedAt: true },
-    });
+    const { rows: [file] } = await query(
+      'SELECT fileId, ciphertext, iv, rev, updatedAt FROM vaultFile WHERE userId_fileId = $1 AND userId = $2',
+      [fileId, req.userId]
+    );
     if (!file) throw new HttpError(404, 'File not found', 'not_found');
     res.json({ file });
   }),
@@ -49,19 +49,21 @@ filesRouter.put(
     const { ciphertext, iv } = req.body as import('../schemas/files').PutFileInput;
     const userId = req.userId!;
 
-    const existing = await prisma.vaultFile.findUnique({
-      where: { userId_fileId: { userId, fileId } },
-      select: { rev: true },
-    });
-    const nextRev = (existing?.rev ?? 0) + 1;
+    // Check existing revision for optimistic concurrency
+    const { rows: [existing] } = await query(
+      'SELECT rev FROM vaultFile WHERE userId_fileId = $1 AND userId = $2',
+      [fileId, userId]
+    );
 
-    const saved = await prisma.vaultFile.upsert({
-      where: { userId_fileId: { userId, fileId } },
-      create: { userId, fileId, ciphertext, iv, rev: nextRev },
-      update: { ciphertext, iv, rev: nextRev },
-      select: { fileId: true, rev: true, updatedAt: true },
-    });
-    res.json({ file: saved });
+    const existingRev = existing?.rev as number | undefined;
+    const nextRev = (existingRev ?? 0) + 1;
+    await query(
+      `INSERT INTO vaultFile (userId, fileId, ciphertext, iv, rev)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (userId_fileId) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, iv = EXCLUDED.iv, rev = EXCLUDED.rev`,
+      [userId, fileId, ciphertext, iv, nextRev]
+    );
+    res.json({ file: { fileId, rev: nextRev } });
   }),
 );
 
@@ -70,7 +72,12 @@ filesRouter.delete(
   validate(fileIdParam, 'params'),
   asyncHandler(async (req, res) => {
     const { fileId } = req.params as unknown as { fileId: string };
-    await prisma.vaultFile.deleteMany({ where: { userId: req.userId!, fileId } });
+    await query(
+      'DELETE FROM vaultFile WHERE userId = $1 AND fileId = $2',
+      [req.userId, fileId]
+    );
     res.status(204).send();
   }),
 );
+
+export default filesRouter;

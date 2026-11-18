@@ -1,5 +1,41 @@
 # LeftBehind
 
+## Verify the rebuild backend
+
+```bash
+scripts/install_local_postgres.sh   # once: rootless PostgreSQL 16 + PostGIS into .pgstack/
+scripts/local_db.sh test            # apply migrations from zero + 106 policy/behaviour assertions
+.venv-sqlcheck/bin/python scripts/check_sql.py   # SQL parse gate
+```
+
+Both commands exit non-zero on failure. `docs/setup.md` covers the Supabase CLI
+path and what the assertions prove.
+
+## Run the web app
+
+```bash
+cd apps/web
+npm install        # own lockfile; the repo root stays the frozen Expo app
+npm run dev        # http://localhost:5173 — regenerates design tokens first
+npm run build      # typecheck + production build
+```
+
+`/design` is the living component inventory (type scale, palette, every
+primitive). Design tokens are generated from `packages/design-tokens/tokens.json`
+by `node packages/design-tokens/build.mjs`; do not edit the generated CSS.
+
+> **Rebuild status.** This repository is being rebuilt as a travel discovery and
+> exploration platform (Flutter mobile, React web, React admin, Supabase backend).
+> The Expo app described below is the **legacy** product, kept frozen in place
+> until the new apps reach parity. Start with
+> [`docs/progress.md`](docs/progress.md), the full-brief inventory in
+> [`docs/phase-0-audit.md`](docs/phase-0-audit.md), then
+> [`docs/architecture.md`](docs/architecture.md) and
+> [`docs/roadmap.md`](docs/roadmap.md). The new backend lives in
+> `backend/supabase/`, the design system in `docs/design-system.md`.
+
+## Legacy app (packing companion)
+
 Cross-platform travel packing companion built with Expo + React Native.
 
 Pack smart checklists for hotels, Airbnbs, gyms, and more. Track personal blind spots, budget trips on a calendar, and get checkout reminders — with a liquid-glass UI, local accounts, and offline-first data.
